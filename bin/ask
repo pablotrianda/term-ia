@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+set -u
+
+CONFIG="$HOME/.config/ask/env"
+
+if [[ -f "$CONFIG" ]]; then
+    source "$CONFIG"
+fi
+
+if [[ -z "${GROQ_API_KEY:-}" ]]; then
+    echo "Error: falta configurar GROQ_API_KEY"
+    echo "Revis├í ~/.config/ask/env"
+    exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+    echo "Uso: ? tu pregunta"
+    exit 1
+fi
+
+QUERY="$*"
+
+# Si recibe datos por stdin, agregarlos a la consulta
+if [[ ! -t 0 ]]; then
+    INPUT=$(cat)
+    QUERY="$QUERY
+
+Salida del comando:
+$INPUT"
+fi
+
+MODEL="openai/gpt-oss-20b"
+
+PAYLOAD=$(jq -n \
+    --arg model "$MODEL" \
+    --arg query "$QUERY" \
+    '{
+        # ... resto de tu configuraci├│n
+    }'
+)
+
+PAYLOAD=$(jq -n \
+    --arg model "$MODEL" \
+    --arg query "$QUERY" \
+    '{
+        model: $model,
+        messages: [
+            {
+                role: "system",
+                content: "Sos un asistente de terminal para un desarrollador. Respond├® siempre en espa├▒ol, de forma breve y directa. Prioriz├í comandos ejecutables, ejemplos concretos y explicaciones de 3 a 6 l├¡neas. Para preguntas t├®cnicas, mostr ├í primero la soluci├│n y despu├®s una explicaci├│n m├¡nima. No inventes resultados ni afirmes haber ejecutado comandos."
+            },
+            {
+                role: "user",
+                content: $query
+            }
+        ],
+        max_completion_tokens: 180,
+        reasoning_effort: "low",
+        temperature: 0.2
+    }'
+)
+
+RESPONSE=$(curl -sS \
+    --connect-timeout 5 \
+    --max-time 30 \
+    -w '\n%{http_code}' \
+    https://api.groq.com/openai/v1/chat/completions \
+    -H "Authorization: Bearer $GROQ_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD") || {
+        echo "Error: no se pudo conectar con Groq."
+        exit 1
+    }
+
+HTTP_CODE="${RESPONSE##*$'\n'}"
+BODY="${RESPONSE%$'\n'*}"
+
+if [[ "$HTTP_CODE" != "200" ]]; then
+    echo "Error de Groq (HTTP $HTTP_CODE):"
+    jq -r '.error.message // .' <<< "$BODY" 2>/dev/null
+    exit 1
+fi
+
+ANSWER=$(jq -r '.choices[0].message.content // empty' <<< "$BODY")
+
+if [[ -z "$ANSWER" ]]; then
+    echo "Error: Groq no devolvi├│ una respuesta."
+    exit 1
+fi
+
+printf '\n%s\n\n' "$ANSWER" | glow -
+printf '\n%s\n\n' "🤖" 
+🤖

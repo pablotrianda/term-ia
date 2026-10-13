@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+set -u
+
+CONFIG="$HOME/.config/ask/env"
+
+if [[ -f "$CONFIG" ]]; then
+    source "$CONFIG"
+fi
+
+if [[ -z "${GROQ_API_KEY:-}" ]]; then
+    echo "Error: falta configurar GROQ_API_KEY"
+    exit 1
+fi
+
+MODEL="openai/gpt-oss-20b"
+API="https://api.groq.com/openai/v1/chat/completions"
+MESSAGES='[]'
+
+# Leer entrada desde una tuber├¡a, si existe
+INPUT=""
+if [[ ! -t 0 ]]; then
+    INPUT=$(cat)
+    exec </dev/tty
+fi
+
+# Agregar la salida del comando al contexto inicial
+if [[ -n "$INPUT" ]]; then
+    MESSAGES=$(jq -cn --arg content \
+        "Salida del comando:
+
+$INPUT
+
+Us├í esta salida como contexto para las preguntas posteriores." \
+        '[{"role":"user","content":$content}]')
+fi
+
+clear
+
+# Pregunta inicial opcional
+FIRST_PROMPT="$*"
+
+while true; do
+    if [[ -n "$FIRST_PROMPT" ]]; then
+        PROMPT="$FIRST_PROMPT"
+        FIRST_PROMPT=""
+        printf '\033[1;32m> \033[0m%s\n\n' "$PROMPT"
+    else
+        printf '\033[1;32m> \033[0m'
+        IFS= read -r PROMPT || break
+    fi
+
+    case "$PROMPT" in
+        /salir|/exit|/quit)
+            break
+            ;;
+        /limpiar|/clear)
+            MESSAGES='[]'
+            printf 'Historial borrado.\n\n'
+            continue
+            ;;
+        "")
+            continue
+            ;;
+    esac
+
+    MESSAGES=$(jq -c --arg content "$PROMPT" \
+        '. + [{"role":"user","content":$content}]' \
+        <<< "$MESSAGES")
+
+    PAYLOAD=$(jq -n \
+        --arg model "$MODEL" \
+        --argjson messages "$MESSAGES" \
+        '{
+            model: $model,
+            messages: (
+                [{
+                    role: "system",
+                    content: "Sos un asistente t├®cnico. Respond├® en espa├▒ol, de forma clara, concisa y pr├íctica. Prioriz├í comandos y ejemplos. Us├í la salida de comandos proporcionada como contexto."
+                }] + $messages
+            ),
+            max_completion_tokens: 500,
+            temperature: 0.3
+        }')
+
+    RESPONSE=$(curl -sS \
+        --connect-timeout 5 \
+        --max-time 60 \
+        -w '\n%{http_code}' \
+        "$API" \
+        -H "Authorization: Bearer $GROQ_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d "$PAYLOAD") || {
+            echo "Error de conexi├│n con Groq."
+            continue
+        }
+
+    HTTP_CODE="${RESPONSE##*$'\n'}"
+    BODY="${RESPONSE%$'\n'*}"
+
+    if [[ "$HTTP_CODE" != "200" ]]; then
+        printf 'Error HTTP %s:\n' "$HTTP_CODE"
+        jq -r '.error.message // .' <<< "$BODY"
+        continue
+    fi
+
+    ANSWER=$(jq -r \
+        '.choices[0].message.content // empty' \
+        <<< "$BODY")
+
+    if [[ -z "$ANSWER" ]]; then
+        echo "No se recibi├│ respuesta."
+        continue
+    fi
+
+    MESSAGES=$(jq -c --arg content "$ANSWER" \
+        '. + [{"role":"assistant","content":$content}]' \
+        <<< "$MESSAGES")
+
+    printf '\n 🤖 \n'
+
+    if command -v glow >/dev/null 2>&1; then
+        printf '%s\n' "$ANSWER" | glow -w 80 -
+    else
+        printf '%s\n' "$ANSWER"
+    fi
+
+    printf '\n\n'
+done
+
+printf 'Chat finalizado.\n'
