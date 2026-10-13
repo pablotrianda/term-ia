@@ -27,6 +27,7 @@ mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 # Instalar comandos
 install -m 755 "$REPO_DIR/bin/ask" "$BIN_DIR/ask"
 install -m 755 "$REPO_DIR/bin/chat" "$BIN_DIR/chat"
+install -m 755 "$REPO_DIR/bin/agent" "$BIN_DIR/agent"
 
 # Configuración de API
 if [[ ! -f "$CONFIG_DIR/env" ]]; then
