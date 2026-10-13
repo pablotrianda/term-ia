@@ -49,6 +49,7 @@ if ! grep -qF '# term-ai aliases' "$BASHRC"; then
 # term-ai aliases
 alias '?'='ask'
 alias '??'='chat'
+alias '??!'='agent'
 EOF
 fi
 
@@ -63,4 +64,5 @@ echo "1. Configurá tu API key en $CONFIG_DIR/env"
 echo "2. Ejecutá: source ~/.bashrc"
 echo "3. Probá: ? como ver los containers de Docker"
 echo "4. Probá: ??"
+echo "5. Probá: ??! cuantos contenedores estan corriendo"
 
