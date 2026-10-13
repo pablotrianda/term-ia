@@ -1,7 +1,7 @@
 # TERM-AI
 
 <p align="center">
-  <img src="assets/term-ai-banner.png" alt="term-ai - Asistente de terminal con IA" width="100%">
+  <img src="assets/term-ai-banner.png" alt="term-ai - Asistente de terminal con IA" width="25%">
 </p>
 
 Asistente de inteligencia artificial para la terminal, desarrollado en Bash y conectado a la API de Groq.
