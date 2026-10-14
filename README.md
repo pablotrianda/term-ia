@@ -319,6 +319,4 @@ Para probar el soporte de pipes:
 printf 'Error: connection refused\n' | bash bin/chat "analizá este error"
 ```
 
-## Licencia
 
-Este proyecto se distribuye bajo la licencia definida en el archivo `LICENSE`.
