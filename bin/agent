@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 
 set -uo pipefail
@@ -188,6 +187,22 @@ TOOLS=$(cat <<'EOF'
         "required":["pid","signal"]
       }
     }
+  },
+  {
+    "type":"function",
+    "function":{
+      "name":"compress_archive",
+      "description":"Comprimir un archivo o directorio en un archivo tar.gz. Solicita confirmación y no sobrescribe archivos existentes.",
+      "parameters":{
+        "type":"object",
+        "properties":{
+          "source":{"type":"string","description":"Ruta existente del archivo o directorio a comprimir"},
+          "output":{"type":"string","description":"Ruta del archivo .tar.gz que se creará"}
+        },
+        "required":["source","output"],
+        "additionalProperties":false
+      }
+    }
   }
 ]
 EOF
@@ -203,6 +218,7 @@ run_tool() {
     local tool="$1"
     local args="$2"
     local service action lines container pid signal path answer
+    local source_path output_path source_real output_real output_parent
 
     service=$(jq -r '.service // empty' <<< "$args")
     action=$(jq -r '.action // empty' <<< "$args")
@@ -340,6 +356,73 @@ run_tool() {
             fi
 
             sudo kill "-$signal" "$pid"
+            ;;
+
+        compress_archive)
+            source_path=$(jq -r '.source // empty' <<< "$args")
+            output_path=$(jq -r '.output // empty' <<< "$args")
+
+            if [[ -z "$source_path" || -z "$output_path" ]]; then
+                echo "Falta la ruta de origen o destino."
+                return 1
+            fi
+
+            if [[ ! -e "$source_path" ]]; then
+                echo "El origen no existe: $source_path"
+                return 1
+            fi
+
+            if ! command -v tar >/dev/null 2>&1 ||
+               ! command -v realpath >/dev/null 2>&1; then
+                echo "Faltan dependencias: tar y/o realpath."
+                return 1
+            fi
+
+            source_real=$(realpath -e -- "$source_path") || {
+                echo "No se pudo resolver la ruta de origen."
+                return 1
+            }
+            output_parent=$(dirname -- "$output_path")
+
+            if [[ ! -d "$output_parent" ]]; then
+                echo "El directorio de destino no existe: $output_parent"
+                return 1
+            fi
+
+            output_real=$(realpath -m -- "$output_path") || {
+                echo "No se pudo resolver la ruta de destino."
+                return 1
+            }
+
+            if [[ -e "$output_real" ]]; then
+                echo "El destino ya existe; no se sobrescribirá: $output_real"
+                return 1
+            fi
+
+            # Evitar crear el archivo comprimido dentro del directorio de origen.
+            if [[ -d "$source_real" ]]; then
+                case "$output_real" in
+                    "$source_real"/*)
+                        echo "El destino no puede estar dentro del directorio de origen."
+                        return 1
+                        ;;
+                esac
+            fi
+
+            printf '\nSe va a crear un archivo tar.gz.\n'
+            printf 'Origen:  %s\nDestino: %s\n' "$source_real" "$output_real"
+            printf '¿Autorizar la compresión? [s/N] '
+
+            IFS= read -r answer
+            if [[ "$answer" != "s" && "$answer" != "S" ]]; then
+                echo "Operación cancelada por el usuario."
+                return 0
+            fi
+
+            # -- protege nombres de archivo que comiencen con guion.
+            tar -czf "$output_real" \
+                -C "$(dirname -- "$source_real")" \
+                -- "$(basename -- "$source_real")"
             ;;
 
         *)
